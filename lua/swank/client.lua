@@ -15,6 +15,22 @@ local connection_state = "disconnected"
 ---@type integer|nil  jobstart job id for the CL implementation process
 local impl_job_id = nil
 
+---@type uv_timer_t|nil  polling timer waiting for the Swank port file during startup
+local poll_timer = nil
+
+-- Ensure cleanup on Neovim exit (close socket, stop CL process, stop timer)
+-- Registered lazily on first start_and_connect() to keep tests predictable.
+local exit_cleanup_registered = false
+local function ensure_exit_cleanup()
+  if exit_cleanup_registered then return end
+  exit_cleanup_registered = true
+  vim.api.nvim_create_autocmd("VimLeavePre", {
+    once = true,
+    callback = function()
+      M.disconnect()
+    end,
+  })
+end
 ---@type string[]  stderr lines collected during implementation startup; shown only on error exit
 local stderr_log = {}
 ---@type integer  monotonically increasing message ID
@@ -103,6 +119,7 @@ local impl_cli_flags = {
 --- Spawn the configured CL implementation with Swank, detect port from file, then connect
 function M.start_and_connect()
   if connection_state ~= "disconnected" then return end
+  ensure_exit_cleanup()
 
   local cache_dir = vim.fn.stdpath("cache") .. "/swank.nvim"
   vim.fn.mkdir(cache_dir, "p")
@@ -182,15 +199,20 @@ function M.start_and_connect()
 
   -- Poll for port file (500ms × 60 = 30s timeout)
   local attempts = 0
-  local timer = vim.uv.new_timer()
-  timer:start(500, 500, vim.schedule_wrap(function()
+  poll_timer = vim.uv.new_timer()
+  poll_timer:start(500, 500, vim.schedule_wrap(function()
+    -- Guard: if poll_timer was already cleaned up (e.g. by disconnect) or is closing, skip
+    if not poll_timer or poll_timer:is_closing() then
+      return
+    end
     attempts = attempts + 1
     local pf = io.open(port_file, "r")
     if pf then
       local port_str = pf:read("*l")
       pf:close()
-      timer:stop()
-      timer:close()
+      poll_timer:stop()
+      poll_timer:close()
+      poll_timer = nil
       local port = tonumber(port_str)
       if port then
         connection_state = "disconnected"  -- let connect() proceed
@@ -200,8 +222,9 @@ function M.start_and_connect()
         vim.notify("swank.nvim: malformed port file", vim.log.levels.ERROR)
       end
     elseif attempts >= 60 then
-      timer:stop()
-      timer:close()
+      poll_timer:stop()
+      poll_timer:close()
+      poll_timer = nil
       connection_state = "disconnected"
       vim.notify("swank.nvim: timed out waiting for Swank server", vim.log.levels.ERROR)
     end
@@ -210,6 +233,12 @@ end
 
 --- Disconnect and optionally stop the CL implementation process
 function M.disconnect()
+  -- Clean up polling timer if still running during startup
+  if poll_timer and not poll_timer:is_closing() then
+    poll_timer:stop()
+    poll_timer:close()
+    poll_timer = nil
+  end
   if transport then
     transport:disconnect()
     transport = nil
@@ -1197,6 +1226,8 @@ function M._test_reset()
   user_pending     = 0
   stderr_log       = {}
   impl_job_id      = nil
+  poll_timer              = nil
+  exit_cleanup_registered = false
   history          = {}
   history_pos      = 0
 end

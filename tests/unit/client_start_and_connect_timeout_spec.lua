@@ -40,6 +40,7 @@ describe("client.start_and_connect() timeout", function()
           for i = 1, 61 do cb() end
         end,
         stop  = function() end,
+        is_closing = function() return false end,
         close = function() end,
       }
     end

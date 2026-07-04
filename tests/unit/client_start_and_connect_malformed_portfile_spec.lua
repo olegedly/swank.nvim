@@ -39,6 +39,7 @@ describe("client.start_and_connect() malformed port file", function()
           cb()
         end,
         stop  = function() end,
+        is_closing = function() return false end,
         close = function() end,
       }
     end

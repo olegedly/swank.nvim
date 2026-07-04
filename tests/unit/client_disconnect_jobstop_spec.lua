@@ -50,7 +50,7 @@ describe("client.disconnect() stops impl job when present", function()
 
     -- stub timer so it doesn't attempt to poll or call callbacks
     vim.uv.new_timer = function()
-      return { start = function() end, stop = function() end, close = function() end }
+      return { start = function() end, stop = function() end, is_closing = function() return false end, close = function() end }
     end
 
     -- stub io.open when writing script

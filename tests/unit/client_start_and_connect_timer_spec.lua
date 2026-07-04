@@ -47,6 +47,7 @@ describe("client.start_and_connect() timer/port-file polling", function()
       return {
         start = function(self, _a, _b, cb) cb() end,
         stop  = function() end,
+        is_closing = function() return false end,
         close = function() end,
       }
     end

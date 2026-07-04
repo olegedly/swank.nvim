@@ -1589,6 +1589,7 @@ describe("M.start_and_connect() job callbacks", function()
       return {
         start = function() end,
         stop  = function() end,
+        is_closing = function() return false end,
         close = function() end,
       }
     end
